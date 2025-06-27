@@ -7,7 +7,7 @@
 
 #define PCF8563_NUM_REGS 4
 
-#define I2C_MASTER_TIMEOUT_MS 1000
+#define I2C_MASTER_TIMEOUT_MS 10
 
 // rtc registers
 enum rtc_registers

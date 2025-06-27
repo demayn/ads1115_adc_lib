@@ -60,6 +60,7 @@ typedef struct
     uint8_t i2c_addr;   // 0x48 to 0x4B
     gpio_num_t int_pin; // interrupt input pin
     ads1115_pga_cfg gain;
+    bool continuous_conv;
     bool autogain;
     TaskHandle_t task_to_notify;
     i2c_master_dev_handle_t dev_hdl;
@@ -100,4 +101,5 @@ void adc_ads1115_autogain(adc_ads1115 *adc, bool enable);
 esp_err_t adc_ads1115_set_thresh_lo(adc_ads1115 *adc, int16_t thresh);
 esp_err_t adc_ads1115_set_thresh_hi(adc_ads1115 *adc, int16_t thresh);
 esp_err_t adc_ads1115_enable_drdy(adc_ads1115 *adc);
+double adc_ads1115scaleAmps(adc_ads1115 *adc, int16_t val);
 #endif

@@ -8,7 +8,7 @@ esp_err_t read_reg(adc_ads1115 *adc, uint8_t addr, uint16_t *returnval)
     if (i2c_master_transmit_receive(adc->dev_hdl, &addr, 1, buf, 2, I2C_MASTER_TIMEOUT_MS) != ESP_OK)
         return ESP_ERR_TIMEOUT;
     *returnval = (buf[0] << 8) + buf[1];
-    ESP_LOGI(TAG, "r register val: %04x from addr %02x", *returnval, addr);
+    //ESP_LOGI(TAG, "r register val: %04x from addr %02x", *returnval, addr);
     return ESP_OK;
 }
 esp_err_t read_reg_signed(adc_ads1115 *adc, uint8_t addr, int16_t *returnval)
@@ -27,7 +27,7 @@ esp_err_t write_reg(adc_ads1115 *adc, uint8_t addr, uint16_t val)
     buf[0] = addr;
     buf[1] = val >> 8;
     buf[2] = val & 0xFF;
-    ESP_LOGI(TAG, "w register val: %02x%02x for addr %02x", buf[1], buf[2], addr);
+    //ESP_LOGI(TAG, "w register val: %02x%02x for addr %02x", buf[1], buf[2], addr);
     return (i2c_master_transmit(adc->dev_hdl, buf, 3, -1));
 }
 
@@ -66,6 +66,7 @@ void adc_ads1115_init(adc_ads1115 *adc, ads1115_cfg *config)
     adc->shunt_resistor = config->shunt_resistor;
 
     adc->autogain = false,
+    adc->continuous_conv = false,
     adc->gain = FS_2048mV; // default
     ESP_LOGI(TAG, "adc init");
 }
@@ -78,7 +79,7 @@ void adc_ads1115_begin(adc_ads1115 *adc, i2c_master_bus_handle_t bus_hdl)
     i2c_device_config_t adc_dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = adc->i2c_addr,
-        .scl_speed_hz = 100000,
+        .scl_speed_hz = 400000,
     };
 
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_hdl, &adc_dev_cfg, &adc->dev_hdl));
@@ -146,10 +147,12 @@ ads1115_pga_cfg adc_ads1115_get_pga(adc_ads1115 *adc)
 void adc_ads1115_set_conv_mode(adc_ads1115 *adc, bool continuous)
 {
     set_reg_bit(adc, reg_config, CONV_MODE_MASK, !continuous);
+    adc->continuous_conv = continuous;
 }
 
 void adc_ads1115_set_rate(adc_ads1115 *adc, ads1115_rate_cfg new_cfg)
 {
+    ESP_LOGI(TAG, "rate");
     set_reg_bit(adc, reg_config, RATE_MASK, false);
     uint16_t reg_val = 0;
     read_reg(adc, reg_config, &reg_val);
@@ -195,15 +198,19 @@ void adc_ads1115_disable_alert_drdy(adc_ads1115 *adc)
 
 esp_err_t adc_ads1115_read_raw(adc_ads1115 *adc, int16_t *result)
 {
-    esp_err_t err = set_reg_bit(adc, reg_config, OP_STATUS_MASK, true);
-    if (err != ESP_OK)
-        return err;
-
-    // wait for notification from ISR
-    if (ulTaskNotifyTake(pdTRUE, 1000 / portTICK_PERIOD_MS) == 0)
+    esp_err_t err;
+    if (!adc->continuous_conv)
     {
-        ESP_LOGE(TAG, "ADC read timeout");
-        return ESP_ERR_TIMEOUT;
+        err = set_reg_bit(adc, reg_config, OP_STATUS_MASK, true);
+        if (err != ESP_OK)
+            return err;
+
+        // wait for notification from ISR
+        if (ulTaskNotifyTake(pdTRUE, 100 / portTICK_PERIOD_MS) == 0)
+        {
+            ESP_LOGE(TAG, "ADC read timeout");
+            return ESP_ERR_TIMEOUT;
+        }
     }
     err = read_reg_signed(adc, reg_conv_res, result);
     if (err != ESP_OK)
@@ -217,6 +224,7 @@ uint16_t adc_ads1115_read(adc_ads1115 *adc)
 {
     int16_t val = 0;
     adc_ads1115_read_raw(adc, &val);
+    //ESP_LOGI(TAG, "raw val %d", val);
     if (adc->autogain)
     {
         // increase until max gain or adc saturation)
@@ -259,7 +267,7 @@ double adc_ads1115_readVolt(adc_ads1115 *adc)
 
 double adc_ads1115_readAmps(adc_ads1115 *adc)
 {
-    return (adc_ads1115scaleVolt(adc, adc_ads1115_read(adc)));
+    return (adc_ads1115scaleAmps(adc, adc_ads1115_read(adc)));
 }
 
 void adc_ads1115_register_task(adc_ads1115 *adc, TaskHandle_t task_to_notify, bool enable)
@@ -282,17 +290,15 @@ esp_err_t adc_ads1115_set_thresh_hi(adc_ads1115 *adc, int16_t thresh)
 
 esp_err_t adc_ads1115_enable_drdy(adc_ads1115 *adc)
 {
-    // set hi thres MSB to 1 & lo thres MSB to 0
-    ESP_LOGI(TAG, "thresh hi");
+    ESP_LOGI(TAG, "drdy");
+    // set hi thres MSB to 1 & lo thres MSB to 0 to enable DRDY/Comparator pin as DRDY
     esp_err_t err = set_reg_bit(adc, reg_thresh_hi, DRDY_EN_MASK, true);
     if (err != ESP_OK)
         return err;
-    ESP_LOGI(TAG, "thresh lo");
     err = set_reg_bit(adc, reg_thresh_lo, DRDY_EN_MASK, false);
     if (err != ESP_OK)
         return err;
-    ESP_LOGI(TAG, "set queue");
-    adc_ads1115_set_comp_queue(adc, assert_1_conv);
+    adc_ads1115_set_comp_queue(adc, assert_1_conv); // not entirely sure if this is necessary
     return ESP_OK;
 }
 
