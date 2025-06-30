@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "ads1115_adc.h"
+#include "ads1115_adc_priv.h"
 
 #define TAG "ADS1115 Test"
 

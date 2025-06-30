@@ -35,9 +35,9 @@ const double fs_ranges[] = {6.144, 4.096, 2.048, 1.024, 0.512, 0.256};
 #define DRDY_EN_MASK 0x8000 // set low thres to 0 and high thres to 1 to enable DRDY output
 
 // private functions
-esp_err_t read_reg(adc_ads1115 *adc, uint8_t addr, uint16_t *returnval);
-esp_err_t write_reg(adc_ads1115 *adc, uint8_t addr, uint16_t val);
-esp_err_t set_reg_bit(adc_ads1115 *adc, uint8_t addr, uint16_t bitmask, bool en);
-esp_err_t adc_ads1115_read_raw(adc_ads1115 *adc, int16_t *result);
+static esp_err_t read_reg(adc_ads1115 *adc, uint8_t addr, uint16_t *returnval);
+static esp_err_t write_reg(adc_ads1115 *adc, uint8_t addr, uint16_t val);
+static esp_err_t set_reg_bit(adc_ads1115 *adc, uint8_t addr, uint16_t bitmask, bool en);
+static esp_err_t adc_ads1115_read_raw(adc_ads1115 *adc, int16_t *result);
 static void isr_handler(void *_task_handle);
 #endif

@@ -1,7 +1,6 @@
-#include "ads1115_adc.h"
 #include "ads1115_adc_priv.h"
 
-esp_err_t read_reg(adc_ads1115 *adc, uint8_t addr, uint16_t *returnval)
+static esp_err_t read_reg(adc_ads1115 *adc, uint8_t addr, uint16_t *returnval)
 {
     uint8_t buf[2];
     *returnval = 0;
@@ -11,7 +10,7 @@ esp_err_t read_reg(adc_ads1115 *adc, uint8_t addr, uint16_t *returnval)
     //ESP_LOGI(TAG, "r register val: %04x from addr %02x", *returnval, addr);
     return ESP_OK;
 }
-esp_err_t read_reg_signed(adc_ads1115 *adc, uint8_t addr, int16_t *returnval)
+static esp_err_t read_reg_signed(adc_ads1115 *adc, uint8_t addr, int16_t *returnval)
 {
     uint8_t buf[2];
     *returnval = 0;
@@ -21,7 +20,7 @@ esp_err_t read_reg_signed(adc_ads1115 *adc, uint8_t addr, int16_t *returnval)
     return ESP_OK;
 }
 
-esp_err_t write_reg(adc_ads1115 *adc, uint8_t addr, uint16_t val)
+static esp_err_t write_reg(adc_ads1115 *adc, uint8_t addr, uint16_t val)
 {
     uint8_t buf[3];
     buf[0] = addr;
@@ -31,7 +30,7 @@ esp_err_t write_reg(adc_ads1115 *adc, uint8_t addr, uint16_t val)
     return (i2c_master_transmit(adc->dev_hdl, buf, 3, -1));
 }
 
-esp_err_t set_reg_bit(adc_ads1115 *adc, uint8_t addr, uint16_t bitmask, bool en)
+static esp_err_t set_reg_bit(adc_ads1115 *adc, uint8_t addr, uint16_t bitmask, bool en)
 {
     uint16_t reg_val;
     esp_err_t rtrn;
