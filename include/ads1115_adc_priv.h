@@ -5,12 +5,12 @@
 
 #define TAG "I2C_ADC_ADS1115"
 
-#define PCF8563_NUM_REGS 4
-
 #define I2C_MASTER_TIMEOUT_MS 10
 
-// rtc registers
-enum rtc_registers
+#define ADS1115_NUM_REGS 4
+
+// ads1115 adc registers
+enum adc_registers
 {
     reg_conv_res,
     reg_config,

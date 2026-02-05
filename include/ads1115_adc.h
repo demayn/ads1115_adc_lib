@@ -13,6 +13,8 @@
 #include "driver/gpio.h"
 #include "math.h"
 
+#define ADS1115_MAX_NUM_CH 4 // max number of channels (if differential channels are used, this number is lower)
+
 typedef enum
 {
     AIN0_diff_AIN1,
@@ -59,11 +61,22 @@ typedef struct
 {
     uint8_t i2c_addr;   // 0x48 to 0x4B
     gpio_num_t int_pin; // interrupt input pin
-    ads1115_pga_cfg gain;
-    bool continuous_conv;
-    bool autogain;
-    TaskHandle_t task_to_notify;
     i2c_master_dev_handle_t dev_hdl;
+
+    ads1115_rate_cfg rate_cfg;
+    ads1115_comp_queue_cfg comp_queue_cfg;
+
+    ads1115_pga_cfg channel_gains[ADS1115_MAX_NUM_CH];
+    ads1115_mux_cfg channel_muxs[ADS1115_MAX_NUM_CH];
+
+    bool continuous_conversion;                    // whether to continuously read adc values and calculate mean via dedicated task
+    TaskHandle_t continuous_read_taskhdl;          // task handle for continuous read task; if continuous_conversion is false, this is not used
+    uint8_t channel_mean_nums[ADS1115_MAX_NUM_CH]; // number of means to calculate for each channel if continuous is active; if 0 channel is deactivated
+    uint8_t mean_idx[ADS1115_MAX_NUM_CH];
+    bool mean_valid[ADS1115_MAX_NUM_CH];
+    uint8_t mean_num[ADS1115_MAX_NUM_CH]; // one sec for one mean val
+    int32_t *mean_arr[ADS1115_MAX_NUM_CH];
+
     double shunt_resistor; // Ω
 } adc_ads1115;
 
@@ -71,7 +84,9 @@ typedef struct
 {
     uint8_t i2c_addr;
     gpio_num_t int_pin;
-    double shunt_resistor; // Ω
+    double shunt_resistor;      // Ω
+    bool continuous_conversion; // enable task to continuously read adc
+    bool adc_read_task;         // whether to create a task for reading adc or just rely on drdy interrupt and task notification
 } ads1115_cfg;
 
 void adc_ads1115_init(adc_ads1115 *adc, ads1115_cfg *config);
@@ -97,9 +112,7 @@ double adc_ads1115scaleAmps(adc_ads1115 *adc, int16_t val);
 double adc_ads1115_readVolt(adc_ads1115 *adc);
 double adc_ads1115_readAmps(adc_ads1115 *adc);
 void adc_ads1115_register_task(adc_ads1115 *adc, TaskHandle_t task_to_notify, bool enable);
-void adc_ads1115_autogain(adc_ads1115 *adc, bool enable);
 esp_err_t adc_ads1115_set_thresh_lo(adc_ads1115 *adc, int16_t thresh);
 esp_err_t adc_ads1115_set_thresh_hi(adc_ads1115 *adc, int16_t thresh);
 esp_err_t adc_ads1115_enable_drdy(adc_ads1115 *adc);
-double adc_ads1115scaleAmps(adc_ads1115 *adc, int16_t val);
 #endif

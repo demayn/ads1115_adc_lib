@@ -70,8 +70,8 @@ void adc_ads1115_init(adc_ads1115 *adc, ads1115_cfg *config)
     ESP_LOGI(TAG, "adc init");
 }
 
-/// @brief begin rtc operation (setup)
-/// @param rtc rtc handle
+/// @brief begin adc operation
+/// @param adc adc handle
 /// @param bus_hdl i2c bus handle
 void adc_ads1115_begin(adc_ads1115 *adc, i2c_master_bus_handle_t bus_hdl)
 {
