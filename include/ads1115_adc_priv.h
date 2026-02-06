@@ -6,6 +6,8 @@
 #define TAG "I2C_ADC_ADS1115"
 
 #define I2C_MASTER_TIMEOUT_MS 10
+#define ADS1115_SMPHR_TOUT_MS 100
+#define ADS1115_SCL_SPEED_HZ 400000
 
 #define ADS1115_NUM_REGS 4
 
@@ -17,8 +19,6 @@ enum adc_registers
     reg_thresh_lo,
     reg_thresh_hi,
 };
-
-const double fs_ranges[] = {6.144, 4.096, 2.048, 1.024, 0.512, 0.256};
 
 #define OP_STATUS_MASK 0x8000 // write one to start single conmversion(in power down), read 0: conv ongoing, 1: idle
 #define MUX_MASK 0x7000 // input multiplexer config mask
@@ -38,6 +38,14 @@ const double fs_ranges[] = {6.144, 4.096, 2.048, 1.024, 0.512, 0.256};
 static esp_err_t read_reg(adc_ads1115 *adc, uint8_t addr, uint16_t *returnval);
 static esp_err_t write_reg(adc_ads1115 *adc, uint8_t addr, uint16_t val);
 static esp_err_t set_reg_bit(adc_ads1115 *adc, uint8_t addr, uint16_t bitmask, bool en);
-static esp_err_t adc_ads1115_read_raw(adc_ads1115 *adc, int16_t *result);
-static void isr_handler(void *_task_handle);
+
+uint8_t adc_ads1115_next_channel_idx(uint8_t current_channel);
+
+void adc_ads1115_drdy_isr_handler(void *_cont_read_handle);
+void adc_ads1115_cont_read_task(void *ads1115_v);
+
+esp_err_t adc_ads1115_start_single_conv(adc_ads1115 *adc);
+bool adc_ads1115_read_busy(adc_ads1115 *adc);
+
+esp_err_t ads1115_read_conversion(adc_ads1115 *adc, uint8_t channel_idx, int16_t *result);
 #endif

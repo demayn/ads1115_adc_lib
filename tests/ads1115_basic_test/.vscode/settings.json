@@ -21,5 +21,6 @@
         "string_view": "c",
         "span": "c"
     },
-    "idf.flashType": "UART"
+    "idf.flashType": "UART",
+    "idf.currentSetup": "C:/Espressif/frameworks/esp-idf-v5.4/"
 }
