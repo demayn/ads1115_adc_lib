@@ -126,10 +126,10 @@ void adc_ads1115_cont_read_task(void *ads1115_v)
             }
             xSemaphoreTake(adc->mean_arr_mutex[adc->act_channel_idx], ADS1115_SMPHR_TOUT_MS / portTICK_PERIOD_MS);
             adc->mean_arr[adc->act_channel_idx][adc->mean_idx[adc->act_channel_idx]] = conv_result;
-            ESP_LOGD(TAG, "CH %d, idx %d, val %d", adc->act_channel_idx, adc->mean_idx[adc->act_channel_idx], adc->mean_arr[adc->act_channel_idx][adc->mean_idx[adc->act_channel_idx]]);
+            //ESP_LOGD(TAG, "CH %d, idx %d, val %d", adc->act_channel_idx, adc->mean_idx[adc->act_channel_idx], adc->mean_arr[adc->act_channel_idx][adc->mean_idx[adc->act_channel_idx]]);
             adc->mean_idx[adc->act_channel_idx]++;
             uint8_t old_channel_idx = adc->act_channel_idx;
-            ESP_LOGD(TAG, "CH %d, idx %d", adc->act_channel_idx, adc->mean_idx[adc->act_channel_idx]);
+            //ESP_LOGD(TAG, "CH %d, idx %d", adc->act_channel_idx, adc->mean_idx[adc->act_channel_idx]);
 
             // mean array for this channel is full, move on to next active channel
             if (adc->mean_idx[adc->act_channel_idx] >= adc->mean_num[adc->act_channel_idx])
@@ -259,7 +259,7 @@ esp_err_t adc_ads1115_begin(adc_ads1115 *adc, i2c_master_bus_handle_t bus_hdl)
             }
         }
         adc->continuous_read_taskhdl = NULL;
-        xTaskCreate(adc_ads1115_cont_read_task, "ads1115_cont_read_task", 2048, (void *)adc, tskIDLE_PRIORITY + 1, &adc->continuous_read_taskhdl);
+        xTaskCreate(adc_ads1115_cont_read_task, "ads1115_cont_read_task", 3072, (void *)adc, tskIDLE_PRIORITY + 1, &adc->continuous_read_taskhdl);
     }
 
     if (adc->use_drdy_interrupt)
@@ -269,7 +269,14 @@ esp_err_t adc_ads1115_begin(adc_ads1115 *adc, i2c_master_bus_handle_t bus_hdl)
 
         if (!adc->continuous_read_task_enabled) // if there is no other task, just notify the current one
             *isr_task_to_notify = xTaskGetCurrentTaskHandle();
-        ESP_RETURN_ON_ERROR(gpio_install_isr_service(ESP_INTR_FLAG_EDGE), TAG, "gpio isr install failed");
+        
+        // Install GPIO ISR service only if not already installed
+        esp_err_t ret = gpio_install_isr_service(ESP_INTR_FLAG_EDGE);
+        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+            ESP_LOGE(TAG, "gpio isr install failed");
+            return ret;
+        }
+        
         ESP_RETURN_ON_ERROR(gpio_isr_handler_add(adc->int_pin, adc_ads1115_drdy_isr_handler, (void *)isr_task_to_notify), TAG, "gpio isr handler add failed");
         gpio_config_t int_cfg = {
             .mode = GPIO_MODE_INPUT,
@@ -281,6 +288,8 @@ esp_err_t adc_ads1115_begin(adc_ads1115 *adc, i2c_master_bus_handle_t bus_hdl)
         ESP_RETURN_ON_ERROR(gpio_config(&int_cfg), TAG, "gpio config failed");
         adc_ads1115_enable_drdy(adc);
     }
+    else
+    ESP_LOGW(TAG, "DRDY interrupt not enabled, continuous read task will have to poll for conversion completion, which might cause higher latency and lower sample rate");
 
     ESP_LOGI(TAG, "adc begin");
     return ESP_OK;
