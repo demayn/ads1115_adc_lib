@@ -18,8 +18,11 @@ static esp_err_t read_reg_signed(adc_ads1115 *adc, uint8_t addr, int16_t *return
 {
     uint8_t buf[2];
     *returnval = 0;
-    if (i2c_master_transmit_receive(adc->dev_hdl, &addr, 1, buf, 2, I2C_MASTER_TIMEOUT_MS) != ESP_OK)
-        return ESP_ERR_TIMEOUT;
+    esp_err_t err = i2c_master_transmit_receive(adc->dev_hdl, &addr, 1, buf, 2, I2C_MASTER_TIMEOUT_MS);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
     *returnval = (buf[0] << 8) + buf[1];
     return ESP_OK;
 }
@@ -77,6 +80,12 @@ void adc_ads1115_drdy_isr_handler(void *_cont_read_handle)
 void adc_ads1115_cont_read_task(void *ads1115_v)
 {
     adc_ads1115 *adc = (adc_ads1115 *)ads1115_v;
+    if (adc == NULL)
+    {
+        ESP_LOGE(TAG, "ADC task received NULL handle");
+        vTaskDelete(NULL);
+        return;
+    }
 
     TickType_t delay = portMAX_DELAY;
     if (adc->read_task_period_ms > 0)
@@ -112,24 +121,39 @@ void adc_ads1115_cont_read_task(void *ads1115_v)
             int16_t conv_result;
             if (notification || !adc->use_drdy_interrupt) // if we were notified or we are not using interrupts, read the adc value
             {
-                if (ads1115_read_conversion(adc, adc->act_channel_idx, &conv_result) != ESP_OK)
+                esp_err_t err = ads1115_read_conversion(adc, adc->act_channel_idx, &conv_result);
+                if (err != ESP_OK)
                 {
-                    ESP_LOGE(TAG, "failed to read conversion");
-                    vTaskDelay(1000 / portTICK_PERIOD_MS);
+                    ESP_LOGE(TAG, "failed to read conversion %s", esp_err_to_name(err));
+                    vTaskDelay(100/portTICK_PERIOD_MS);
                     continue;
                 }
             }
             else
             {
                 ESP_LOGW(TAG, "no notification received");
+                vTaskDelay(20 / portTICK_PERIOD_MS);
                 continue;
             }
-            xSemaphoreTake(adc->mean_arr_mutex[adc->act_channel_idx], ADS1115_SMPHR_TOUT_MS / portTICK_PERIOD_MS);
+            if (adc->mean_arr_mutex[adc->act_channel_idx] == NULL || adc->mean_arr[adc->act_channel_idx] == NULL)
+            {
+                ESP_LOGE(TAG, "Mean storage not initialized for channel %d", adc->act_channel_idx);
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
+                continue;
+            }
+
+            if (xSemaphoreTake(adc->mean_arr_mutex[adc->act_channel_idx], ADS1115_SMPHR_TOUT_MS / portTICK_PERIOD_MS) != pdTRUE)
+            {
+                ESP_LOGW(TAG, "Semaphore timeout for channel %d", adc->act_channel_idx);
+                vTaskDelay(ADS1115_SMPHR_TOUT_MS / portTICK_PERIOD_MS);
+                continue;
+            }
+
             adc->mean_arr[adc->act_channel_idx][adc->mean_idx[adc->act_channel_idx]] = conv_result;
-            //ESP_LOGD(TAG, "CH %d, idx %d, val %d", adc->act_channel_idx, adc->mean_idx[adc->act_channel_idx], adc->mean_arr[adc->act_channel_idx][adc->mean_idx[adc->act_channel_idx]]);
+            // ESP_LOGD(TAG, "CH %d, idx %d, val %d", adc->act_channel_idx, adc->mean_idx[adc->act_channel_idx], adc->mean_arr[adc->act_channel_idx][adc->mean_idx[adc->act_channel_idx]]);
             adc->mean_idx[adc->act_channel_idx]++;
             uint8_t old_channel_idx = adc->act_channel_idx;
-            //ESP_LOGD(TAG, "CH %d, idx %d", adc->act_channel_idx, adc->mean_idx[adc->act_channel_idx]);
+            // ESP_LOGD(TAG, "CH %d, idx %d", adc->act_channel_idx, adc->mean_idx[adc->act_channel_idx]);
 
             // mean array for this channel is full, move on to next active channel
             if (adc->mean_idx[adc->act_channel_idx] >= adc->mean_num[adc->act_channel_idx])
@@ -148,19 +172,18 @@ void adc_ads1115_cont_read_task(void *ads1115_v)
                     adc_ads1115_set_mux(adc, adc->channel_muxs[next_channel_idx]);
                     adc->act_channel_idx = next_channel_idx;
                     adc_ads1115_set_pga(adc, adc->channel_gains[next_channel_idx]);
-                    xSemaphoreGive(adc->mean_arr_mutex[old_channel_idx]);
                     vTaskDelay(100 / portTICK_PERIOD_MS); // to let ad settle;
 
                     ulTaskNotifyTake(pdTRUE, delay); // discard the first value after that
                 }
-                else
-                    xSemaphoreGive(adc->mean_arr_mutex[old_channel_idx]);
             }
             else
                 xSemaphoreGive(adc->mean_arr_mutex[old_channel_idx]);
         }
         else
-            vTaskDelay(ADS1115_SMPHR_TOUT_MS); // if we cannot take the mutex or no channel is active, wait
+        {
+            vTaskDelay(ADS1115_SMPHR_TOUT_MS / portTICK_PERIOD_MS); // no active channels configured
+        }
     }
 }
 
@@ -179,7 +202,8 @@ bool adc_ads1115_read_busy(adc_ads1115 *adc)
 
 esp_err_t ads1115_read_conversion(adc_ads1115 *adc, uint8_t channel_idx, int16_t *result)
 {
-    return read_reg_signed(adc, reg_conv_res, result);
+    uint8_t addr = reg_conv_res;
+    return read_reg_signed(adc, addr, result);
 }
 
 /************************** Public Functions **************************/
@@ -256,40 +280,55 @@ esp_err_t adc_ads1115_begin(adc_ads1115 *adc, i2c_master_bus_handle_t bus_hdl)
             {
                 adc->mean_arr[i] = malloc(sizeof(int16_t) * adc->mean_num[i]);
                 adc->mean_arr_mutex[i] = xSemaphoreCreateMutex();
+                if (adc->mean_arr[i] == NULL || adc->mean_arr_mutex[i] == NULL)
+                {
+                    ESP_LOGE(TAG, "Failed to allocate mean storage for channel %u", (unsigned)i);
+                    return ESP_ERR_NO_MEM;
+                }
             }
         }
         adc->continuous_read_taskhdl = NULL;
-        xTaskCreate(adc_ads1115_cont_read_task, "ads1115_cont_read_task", 3072, (void *)adc, tskIDLE_PRIORITY + 1, &adc->continuous_read_taskhdl);
+        if (xTaskCreate(adc_ads1115_cont_read_task, "ads1115_cont", 4608, (void *)adc, tskIDLE_PRIORITY + 1, &adc->continuous_read_taskhdl) != pdPASS)
+        {
+            ESP_LOGE(TAG, "Failed to create ads1115_cont_read_task");
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     if (adc->use_drdy_interrupt)
     {
         TaskHandle_t *isr_task_to_notify = malloc(sizeof(TaskHandle_t));
+        if (isr_task_to_notify == NULL)
+        {
+            ESP_LOGE(TAG, "Failed to allocate isr_task_to_notify");
+            return ESP_ERR_NO_MEM;
+        }
         *isr_task_to_notify = adc->continuous_read_taskhdl;
 
         if (!adc->continuous_read_task_enabled) // if there is no other task, just notify the current one
             *isr_task_to_notify = xTaskGetCurrentTaskHandle();
-        
+
         // Install GPIO ISR service only if not already installed
         esp_err_t ret = gpio_install_isr_service(ESP_INTR_FLAG_EDGE);
-        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE)
+        {
             ESP_LOGE(TAG, "gpio isr install failed");
             return ret;
         }
-        
+
         ESP_RETURN_ON_ERROR(gpio_isr_handler_add(adc->int_pin, adc_ads1115_drdy_isr_handler, (void *)isr_task_to_notify), TAG, "gpio isr handler add failed");
         gpio_config_t int_cfg = {
             .mode = GPIO_MODE_INPUT,
             .pull_up_en = true,
             .pull_down_en = false,
-            .pin_bit_mask = 1 << adc->int_pin,
+            .pin_bit_mask = 1ULL << adc->int_pin,
             .intr_type = GPIO_INTR_POSEDGE,
         };
         ESP_RETURN_ON_ERROR(gpio_config(&int_cfg), TAG, "gpio config failed");
         adc_ads1115_enable_drdy(adc);
     }
     else
-    ESP_LOGW(TAG, "DRDY interrupt not enabled, continuous read task will have to poll for conversion completion, which might cause higher latency and lower sample rate");
+        ESP_LOGW(TAG, "DRDY interrupt not enabled, continuous read task will have to poll for conversion completion, which might cause higher latency and lower sample rate");
 
     ESP_LOGI(TAG, "adc begin");
     return ESP_OK;
@@ -437,7 +476,7 @@ void adc_ads1115_set_comp_queue(adc_ads1115 *adc, ads1115_comp_queue_cfg new_cfg
     set_reg_bit(adc, reg_config, COMP_QUEUE_MASK, false);
     uint16_t reg_val = 0;
     read_reg(adc, reg_config, &reg_val);
-    write_reg(adc, reg_config, reg_val | (new_cfg << RATE_SHIFT));
+    write_reg(adc, reg_config, reg_val | (new_cfg & COMP_QUEUE_MASK));
 }
 
 void adc_ads1115_disable_alert_drdy(adc_ads1115 *adc)
