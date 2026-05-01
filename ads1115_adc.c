@@ -7,7 +7,7 @@ static esp_err_t read_reg(adc_ads1115 *adc, uint8_t addr, uint16_t *returnval)
 {
     uint8_t buf[2];
     *returnval = 0;
-    if (i2c_master_transmit_receive(adc->dev_hdl, &addr, 1, buf, 2, I2C_MASTER_TIMEOUT_MS) != ESP_OK)
+    if (i2c_master_transmit_receive(adc->dev_hdl, &addr, 1, buf, sizeof(buf), I2C_MASTER_TIMEOUT_MS) != ESP_OK)
         return ESP_ERR_TIMEOUT;
     *returnval = (buf[0] << 8) + buf[1];
     // ESP_LOGI(TAG, "r register val: %04x from addr %02x", *returnval, addr);
@@ -18,7 +18,7 @@ static esp_err_t read_reg_signed(adc_ads1115 *adc, uint8_t addr, int16_t *return
 {
     uint8_t buf[2];
     *returnval = 0;
-    esp_err_t err = i2c_master_transmit_receive(adc->dev_hdl, &addr, 1, buf, 2, I2C_MASTER_TIMEOUT_MS);
+    esp_err_t err = i2c_master_transmit_receive(adc->dev_hdl, &addr, 1, buf, sizeof(buf), I2C_MASTER_TIMEOUT_MS);
     if (err != ESP_OK)
     {
         return err;
@@ -34,7 +34,7 @@ static esp_err_t write_reg(adc_ads1115 *adc, uint8_t addr, uint16_t val)
     buf[1] = val >> 8;
     buf[2] = val & 0xFF;
     // ESP_LOGI(TAG, "w register val: %02x%02x for addr %02x", buf[1], buf[2], addr);
-    return (i2c_master_transmit(adc->dev_hdl, buf, 3, -1));
+    return (i2c_master_transmit(adc->dev_hdl, buf, sizeof(buf), -1));
 }
 
 static esp_err_t set_reg_bit(adc_ads1115 *adc, uint8_t addr, uint16_t bitmask, bool en)
@@ -259,6 +259,7 @@ esp_err_t adc_ads1115_begin(adc_ads1115 *adc, i2c_master_bus_handle_t bus_hdl)
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = adc->i2c_addr,
         .scl_speed_hz = 400000,
+        .scl_wait_us = 0,
     };
 
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus_hdl, &adc_dev_cfg, &adc->dev_hdl), TAG, "failed to add adc device to i2c bus");
