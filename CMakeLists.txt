@@ -8,7 +8,7 @@ execute_process(
 
 idf_component_register(SRCS "ads1115_adc.c"
                     INCLUDE_DIRS "include"
-                    REQUIRES "driver")
+                    REQUIRES esp_driver_i2c esp_driver_gpio)
 
 # Add the version definition to the build
 set_property(TARGET ${COMPONENT_LIB} APPEND PROPERTY COMPILE_DEFINITIONS LIB_VERSION=\"${LIB_VERSION}\")
