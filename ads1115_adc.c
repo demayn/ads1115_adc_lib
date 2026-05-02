@@ -3,12 +3,38 @@
 const double ads1115_fs_ranges[] = {6.144, 4.096, 2.048, 1.024, 0.512, 0.256};
 const double ads1115_sample_rates[] = {8, 16, 32, 64, 128, 250, 475, 860};
 
+static esp_err_t ads1115_i2c_lock(adc_ads1115 *adc)
+{
+    if (adc->i2c_mutex == NULL)
+        return ESP_OK;
+
+    if (xSemaphoreTake(adc->i2c_mutex, ADS1115_SMPHR_TOUT_MS / portTICK_PERIOD_MS) != pdTRUE)
+        return ESP_ERR_TIMEOUT;
+
+    return ESP_OK;
+}
+
+static void ads1115_i2c_unlock(adc_ads1115 *adc)
+{
+    if (adc->i2c_mutex != NULL)
+        xSemaphoreGive(adc->i2c_mutex);
+}
+
 static esp_err_t read_reg(adc_ads1115 *adc, uint8_t addr, uint16_t *returnval)
 {
     uint8_t buf[2];
+    esp_err_t err = ads1115_i2c_lock(adc);
+    if (err != ESP_OK)
+        return err;
+
     *returnval = 0;
     if (i2c_master_transmit_receive(adc->dev_hdl, &addr, 1, buf, sizeof(buf), I2C_MASTER_TIMEOUT_MS) != ESP_OK)
+    {
+        ads1115_i2c_unlock(adc);
         return ESP_ERR_TIMEOUT;
+    }
+
+    ads1115_i2c_unlock(adc);
     *returnval = (buf[0] << 8) + buf[1];
     // ESP_LOGI(TAG, "r register val: %04x from addr %02x", *returnval, addr);
     return ESP_OK;
@@ -17,8 +43,13 @@ static esp_err_t read_reg(adc_ads1115 *adc, uint8_t addr, uint16_t *returnval)
 static esp_err_t read_reg_signed(adc_ads1115 *adc, uint8_t addr, int16_t *returnval)
 {
     uint8_t buf[2];
+    esp_err_t err = ads1115_i2c_lock(adc);
+    if (err != ESP_OK)
+        return err;
+
     *returnval = 0;
-    esp_err_t err = i2c_master_transmit_receive(adc->dev_hdl, &addr, 1, buf, sizeof(buf), I2C_MASTER_TIMEOUT_MS);
+    err = i2c_master_transmit_receive(adc->dev_hdl, &addr, 1, buf, sizeof(buf), I2C_MASTER_TIMEOUT_MS);
+    ads1115_i2c_unlock(adc);
     if (err != ESP_OK)
     {
         return err;
@@ -34,7 +65,13 @@ static esp_err_t write_reg(adc_ads1115 *adc, uint8_t addr, uint16_t val)
     buf[1] = val >> 8;
     buf[2] = val & 0xFF;
     // ESP_LOGI(TAG, "w register val: %02x%02x for addr %02x", buf[1], buf[2], addr);
-    return (i2c_master_transmit(adc->dev_hdl, buf, sizeof(buf), -1));
+    esp_err_t err = ads1115_i2c_lock(adc);
+    if (err != ESP_OK)
+        return err;
+
+    err = i2c_master_transmit(adc->dev_hdl, buf, sizeof(buf), -1);
+    ads1115_i2c_unlock(adc);
+    return err;
 }
 
 static esp_err_t set_reg_bit(adc_ads1115 *adc, uint8_t addr, uint16_t bitmask, bool en)
@@ -210,6 +247,8 @@ esp_err_t ads1115_read_conversion(adc_ads1115 *adc, uint8_t channel_idx, int16_t
 
 void adc_ads1115_init(adc_ads1115 *adc, ads1115_cfg *config)
 {
+    adc->i2c_mutex = config->i2c_mutex;
+
     // Copy hardware configuration
     adc->i2c_addr = config->i2c_addr;
     adc->int_pin = config->int_pin;

@@ -10,6 +10,7 @@
 #include "esp_check.h"
 #include "esp_task.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "driver/gpio.h"
 #include "math.h"
 
@@ -60,6 +61,7 @@ typedef enum
 typedef struct
 {
     i2c_master_dev_handle_t dev_hdl;
+    SemaphoreHandle_t i2c_mutex; // optional external mutex for serialized I2C access
 
     // HW
     uint8_t i2c_addr;      // 0x48 to 0x4B
@@ -91,6 +93,8 @@ typedef struct
 
 typedef struct
 {
+    SemaphoreHandle_t i2c_mutex; // optional external mutex for serialized I2C access
+
     // HW
     uint8_t i2c_addr;      // 0x48 to 0x4B
     gpio_num_t int_pin;    // interrupt input pin
