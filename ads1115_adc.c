@@ -169,8 +169,7 @@ void adc_ads1115_cont_read_task(void *ads1115_v)
             else
             {
                 ESP_LOGW(TAG, "no notification received");
-                vTaskDelay(20 / portTICK_PERIOD_MS);
-                continue;
+                // still read conversion to clear drdy flag (in case notification was missed due to timing or other issues), but log warning since this might indicate that notifications are not working properly
             }
             if (adc->mean_arr_mutex[adc->act_channel_idx] == NULL || adc->mean_arr[adc->act_channel_idx] == NULL)
             {
